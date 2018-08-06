@@ -21,6 +21,7 @@ import (
 	"net/textproto"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/containous/traefik/log"
 
@@ -45,6 +46,25 @@ func init() {
 type Server struct {
 	*http.Server
 }
+
+// tcpKeepAliveListener sets TCP keep-alive timeouts on accepted
+// connections. It's used by ListenAndServe and ListenAndServeTLS so
+// dead TCP connections (e.g. closing laptop mid-download) eventually
+// go away.
+type tcpKeepAliveListener struct {
+	*net.TCPListener
+}
+
+func (ln tcpKeepAliveListener) Accept() (net.Conn, error) {
+	tc, err := ln.AcceptTCP()
+	if err != nil {
+		return nil, err
+	}
+	tc.SetKeepAlive(true)
+	tc.SetKeepAlivePeriod(3 * time.Minute)
+	return tc, nil
+}
+
 
 // Serve Put a middleware around the original handler to handle h2c
 func (s Server) Serve(l net.Listener) error {
@@ -77,7 +97,7 @@ func (s Server) Serve(l net.Listener) error {
 		}
 		originalHandler.ServeHTTP(w, r)
 	})
-	return s.Server.Serve(l)
+	return s.Server.Serve(tcpKeepAliveListener{l.(*net.TCPListener)})
 }
 
 // initH2CWithPriorKnowledge implements creating a h2c connection with prior
